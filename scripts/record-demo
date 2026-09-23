@@ -1,0 +1,30 @@
+#!/usr/bin/env bash
+# Records site/agent-demo.{mp4,webm,jpg}: an agent in kitty launches termdesk in a split and drives the desktop.
+# Needs Xvfb, openbox, kitty, ffmpeg and a password-less VNC desktop at $TARGET (1280x800 XFCE).
+# The agent types "$BROWSER $URL" into a terminal on that desktop; serve site/ on $URL first.
+set -euo pipefail
+cd "$(dirname "$0")/.."
+export TARGET="${TARGET:-localhost:5900}" URL="${URL:-http://localhost:8765}" BROWSER="${BROWSER:-chromium}"
+WORK="$(mktemp -d)"
+export DONE_FILE="$WORK/done"
+DISP=:77
+
+cleanup() { kill $(jobs -p) 2>/dev/null || true; rm -rf "$WORK"; }
+trap cleanup EXIT
+
+Xvfb $DISP -screen 0 1600x900x24 >/dev/null 2>&1 &
+sleep 1
+DISPLAY=$DISP openbox >/dev/null 2>&1 &
+printf 'layout splits\ncd %s\nlaunch --title agent bash %s/scripts/demo/agent.sh\n' "$PWD" "$PWD" > "$WORK/session.conf"
+DISPLAY=$DISP ffmpeg -y -loglevel error -f x11grab -framerate 30 -video_size 1600x900 -i $DISP \
+  -c:v libx264 -preset veryfast -crf 20 -pix_fmt yuv420p "$WORK/raw.mp4" &
+FF=$!
+DISPLAY=$DISP LIBGL_ALWAYS_SOFTWARE=1 kitty --config scripts/demo/kitty.conf -o listen_on=unix:"$WORK/kitty" \
+  --session "$WORK/session.conf" --start-as=fullscreen >/dev/null 2>&1 &
+for _ in $(seq 180); do [ -e "$DONE_FILE" ] && break; sleep 1; done
+kill -INT $FF; wait $FF || true
+ffmpeg -loglevel error -y -ss 1 -i "$WORK/raw.mp4" -vf "scale=1280:-2,fps=24" -c:v libx264 -preset slow -crf 27 \
+  -pix_fmt yuv420p -movflags +faststart -an site/agent-demo.mp4
+ffmpeg -loglevel error -y -i site/agent-demo.mp4 -c:v libvpx-vp9 -b:v 0 -crf 40 -row-mt 1 -an site/agent-demo.webm
+ffmpeg -loglevel error -y -ss 30 -i "$WORK/raw.mp4" -frames:v 1 -vf scale=1280:-2 -q:v 4 site/agent-demo.jpg
+echo "wrote site/agent-demo.mp4, .webm and .jpg"

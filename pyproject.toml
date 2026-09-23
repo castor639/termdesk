@@ -1,0 +1,29 @@
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[project]
+name = "termdesk"
+version = "0.3.1"
+description = "A remote desktop inside a kitty-protocol terminal pane, driven over VNC"
+readme = "README.md"
+license = "MIT"
+requires-python = ">=3.9"
+dependencies = ["Pillow>=9", "numpy>=1.20"]
+keywords = ["vnc", "kitty", "ghostty", "terminal", "remote-desktop"]
+classifiers = [
+  "Environment :: Console",
+  "Operating System :: MacOS",
+  "Operating System :: POSIX :: Linux",
+  "Programming Language :: Python :: 3",
+  "Topic :: System :: Networking",
+]
+
+[project.scripts]
+termdesk = "termdesk.cli:main"
+
+[tool.hatch.build.targets.wheel]
+packages = ["termdesk"]
+
+[tool.hatch.build.targets.sdist]
+only-include = ["termdesk", "README.md", "LICENSE", "pyproject.toml"]

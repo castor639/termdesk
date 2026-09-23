@@ -1,0 +1,52 @@
+#!/usr/bin/env bash
+# termdesk installer: curl -fsSL https://tdesk-sh.vercel.app/install | bash
+# Installs uv if needed, then termdesk as a uv tool from the wheel hosted next to this script.
+set -euo pipefail
+
+BASE="${TERMDESK_BASE:-https://tdesk-sh.vercel.app}"
+VERSION="${TERMDESK_VERSION:-0.3.1}"
+WHEEL="$BASE/dl/termdesk-$VERSION-py3-none-any.whl"
+
+say() { printf '\033[1;36mtermdesk\033[0m %s\n' "$*"; }
+die() { printf '\033[1;31mtermdesk\033[0m %s\n' "$*" >&2; exit 1; }
+
+case "$(uname -s)" in
+  Darwin|Linux) ;;
+  *) die "unsupported OS $(uname -s); termdesk runs on macOS and Linux" ;;
+esac
+
+if ! command -v uv >/dev/null 2>&1; then
+  say "installing uv (Python package manager) from astral.sh"
+  curl -LsSf https://astral.sh/uv/install.sh | sh
+  export PATH="$HOME/.local/bin:$HOME/.cargo/bin:$PATH"
+  command -v uv >/dev/null 2>&1 || die "uv did not land on PATH; open a new shell and rerun"
+fi
+
+say "installing termdesk $VERSION"
+uv tool install --force --python ">=3.9" "$WHEEL"
+
+BIN="$(uv tool dir --bin 2>/dev/null || echo "$HOME/.local/bin")"
+export PATH="$BIN:$PATH"
+command -v termdesk >/dev/null 2>&1 || die "installed, but $BIN is not on PATH; add it and rerun \`termdesk --version\`"
+
+if [ -d "$HOME/.claude" ]; then
+  termdesk setup >/dev/null 2>&1 && say "Claude Code skill installed to ~/.claude/skills/termdesk"
+fi
+
+TERM_OK=no
+for t in kitty ghostty wezterm; do command -v "$t" >/dev/null 2>&1 && TERM_OK=yes; done
+[ -d /Applications/kitty.app ] || [ -d /Applications/Ghostty.app ] || [ -d /Applications/WezTerm.app ] && TERM_OK=yes
+if [ "$TERM_OK" = no ]; then
+  say "no kitty, Ghostty or WezTerm found; termdesk needs one of them to draw the desktop"
+fi
+command -v docker >/dev/null 2>&1 || say "docker not found; \`termdesk sandbox\` needs it, plain \`termdesk host:port\` does not"
+
+say "installed $(termdesk --version)"
+cat <<EOF
+
+  termdesk host:port                 show a VNC desktop in this pane
+  termdesk sandbox up --name work    disposable XFCE + Firefox desktop (docker)
+  termdesk work                      show it
+  termdesk action state              drive it from another shell
+
+EOF
