@@ -128,12 +128,11 @@ def up(name=None, image=DEFAULT_IMAGE, geometry="1280x800", memory="2g", cpus="2
     if _docker(["inspect", container], check=False).returncode == 0:
         raise SandboxError("sandbox %s already exists, remove it with `down %s`" % (name, name))
 
-    if pull:
-        p = _docker(["pull", image], check=False)
-        if p.returncode != 0:
-            raise SandboxError(_clean(p.stderr) or "could not pull %s" % image)
-    elif not _have_image(image):
-        sys.stderr.write("image %s not present locally, docker will pull it\n" % image)
+    if pull or not _have_image(image):
+        sys.stderr.write("pulling %s\n" % image)
+        sys.stderr.flush()
+        if subprocess.run(["docker", "pull", image], stdout=sys.stderr).returncode != 0:
+            raise SandboxError("could not pull %s" % image)
 
     port = _free_port()
     args = [
@@ -349,7 +348,8 @@ def _print_up(info, as_json):
     else:
         print("sandbox %s  %s  %s" % (info["name"], info["container"], info["image"]))
         print("target localhost:%d" % info["port"])
-        print("connect with: termdesk localhost:%d" % info["port"])
+        looks_like_host = "." in info["name"] or ":" in info["name"] or info["name"] == "localhost"
+        print("connect with: termdesk %s" % (info["target"] if looks_like_host else info["name"]))
 
 
 def main(argv=None):

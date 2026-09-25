@@ -1,6 +1,6 @@
 {
   "name": "termdesk",
   "description": "Drive a real desktop from Claude Code: indexed accessibility tree, clicks, typing, screenshots, recordings, disposable sandboxes, all visible in the user's terminal pane.",
-  "version": "0.3.1",
+  "version": "0.3.2",
   "skills": ["./skill"]
 }

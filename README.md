@@ -17,7 +17,7 @@ It talks to the desktop over VNC, a standard protocol for viewing and controllin
 ## Install
 
 ```bash
-curl -fsSL https://tdesk-sh.vercel.app/install | bash
+curl -fsSL https://termdesk.warpfield.me/install | bash
 ```
 
 The script installs [uv](https://docs.astral.sh/uv/) if you do not have it, then installs termdesk from the wheel on the site. If `~/.claude` exists, it also adds the Claude Code skill. Run it again to upgrade.
@@ -36,7 +36,7 @@ The install takes about 35 MB, most of it numpy and Pillow.
 Start a sandbox and look at it:
 
 ```bash
-termdesk sandbox up --name work     # XFCE + Firefox desktop in Docker, prints localhost:<port>
+termdesk sandbox up --name work     # XFCE + Firefox desktop in Docker; the first run downloads the image
 termdesk work                       # in a kitty, Ghostty or WezTerm pane: the desktop appears
 ```
 
@@ -45,16 +45,19 @@ Ctrl+Q closes the pane. Every other key and mouse event goes to the desktop.
 From a second shell, drive the same screen:
 
 ```bash
-termdesk action state --full                       # the screen as numbered elements
-termdesk action set-value 11 https://example.org   # click element 11, select all, type
-termdesk action key Return
+termdesk action state                              # the screen as numbered elements
+# [3] push button "Web Browser" @640,752 48x48
+termdesk action click 3                            # Firefox opens
 termdesk action wait-idle                          # wait until the screen stops changing
 termdesk action state                              # what changed since the last state
+# + [23] entry "Search or enter address" @252,78 780x28 [editable]
+termdesk action set-value 23 https://example.org   # click element 23, select all, type
+termdesk action key Return
 termdesk action click 640 400                      # or click by desktop pixel
 termdesk action done                               # clear the AGENT ACTING badge
 ```
 
-Element numbers come from your own `state` output. Use the one your screen shows for the address bar, which may differ from 11.
+Element numbers come from your own `state` output. On a fresh sandbox they match the ones above.
 
 Clean up when you finish:
 

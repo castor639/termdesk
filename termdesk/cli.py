@@ -51,11 +51,14 @@ def cmd_connect(argv):
 
     from .rfb import RFB
     from .session import Session
-    from .control import name_for_target
+    from .control import list_sessions, name_for_target
 
     target = _resolve_target(args.target)
     host, _, port = target.partition(":")
-    name = args.name or name_for_target(target)
+    name = args.name or name_for_target(args.target)
+    if any(s["name"] == name for s in list_sessions()):
+        raise RuntimeError(f"a session named {name} is already running; drive it with "
+                           f"`termdesk action --name {name}` or start another with --name")
     if args.headless and args.daemon:
         _daemonize(args.log)
     rfb = RFB(host or "localhost", int(port or 5900))
@@ -103,19 +106,21 @@ def _daemonize(log):
 
 # ----------------------------------------------------------------- action
 ACTION_HELP = """commands:
-  screenshot [PATH] [--scale S]     save a PNG (or print base64 with --json and no PATH)
-  click X Y [--right|--middle] [--double]
-  move X Y | mousedown X Y | mouseup X Y
+  state [--full]                    the screen as numbered elements (changes only, --full for all)
+  click N | click X Y [--right|--middle] [--double]
+  set-value N TEXT...               click element N, select all, type TEXT
+  scroll N DY | scroll X Y DY [DX]  positive DY scrolls down
+  move N|X Y | mousedown N|X Y | mouseup N|X Y
   drag X1 Y1 X2 Y2
-  scroll X Y DY [DX]                positive DY scrolls down
   type TEXT...                      type literal text
   key COMBO                         e.g. ctrl+l, Return, alt+F4, ctrl+shift+t
   paste TEXT...                     send text to the remote clipboard
+  screenshot [PATH] [--scale S]     save a PNG (or print base64 with --json and no PATH)
   wait MS
   wait-idle [--idle MS] [--timeout MS]   block until the screen stops changing
   record start [PATH] [--fps N] | record stop
-  info | done
-Coordinates are remote desktop pixels; `info` prints its size."""
+  info | done                       done clears the AGENT ACTING badge
+N is an element number from your latest `state`. X Y are remote desktop pixels; `info` prints the size."""
 
 
 def cmd_action(argv):

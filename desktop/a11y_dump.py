@@ -65,7 +65,7 @@ def walk(acc, app, window, depth, out, seen):
     for child in children:
         if child is None or id(child) in seen:
             continue
-        seen.add(id(child))
+        seen[id(child)] = child  # holding the wrapper keeps its id from being reused
         try:
             role = child.getRoleName()
             name = (child.name or "").strip()
@@ -123,7 +123,7 @@ def dump():
                 continue
             ext = extents(win)
             windows.append({"app": app_name, "title": title, "active": active, "extents": ext})
-            walk(win, app_name, title, 0, elements, set())
+            walk(win, app_name, title, 0, elements, {})
     return windows, elements
 
 

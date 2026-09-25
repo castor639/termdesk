@@ -1,10 +1,10 @@
 #!/usr/bin/env bash
-# termdesk installer: curl -fsSL https://tdesk-sh.vercel.app/install | bash
+# termdesk installer: curl -fsSL https://termdesk.warpfield.me/install | bash
 # Installs uv if needed, then termdesk as a uv tool from the wheel hosted next to this script.
 set -euo pipefail
 
-BASE="${TERMDESK_BASE:-https://tdesk-sh.vercel.app}"
-VERSION="${TERMDESK_VERSION:-0.3.1}"
+BASE="${TERMDESK_BASE:-https://termdesk.warpfield.me}"
+VERSION="${TERMDESK_VERSION:-0.3.2}"
 WHEEL="$BASE/dl/termdesk-$VERSION-py3-none-any.whl"
 
 say() { printf '\033[1;36mtermdesk\033[0m %s\n' "$*"; }
