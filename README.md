@@ -22,6 +22,12 @@ curl -fsSL https://termdesk.warpfield.me/install | bash
 
 The script installs [uv](https://docs.astral.sh/uv/) if you do not have it, then installs termdesk from the wheel on the site. If `~/.claude` exists, it also adds the Claude Code skill. Run it again to upgrade.
 
+To remove termdesk and everything it created (sessions, sandboxes, the desktop image, the skill, and uv if the installer added it):
+
+```bash
+termdesk uninstall
+```
+
 You need:
 
 - macOS or Linux.
@@ -37,22 +43,25 @@ Start a sandbox and look at it:
 
 ```bash
 termdesk sandbox up --name work     # XFCE + Firefox desktop in Docker; the first run downloads the image
-termdesk work                       # in a kitty, Ghostty or WezTerm pane: the desktop appears
+termdesk window work                # a new kitty, Ghostty or WezTerm window shows the desktop
 ```
 
-Ctrl+Q closes the pane. Every other key and mouse event goes to the desktop.
+Or run `termdesk work` to show it in the pane you are already in.
 
-From a second shell, drive the same screen:
+Ctrl+Q closes the window. Every other key and mouse event goes to the desktop.
+
+Drive the same screen from any shell:
 
 ```bash
 termdesk action state                              # the screen as numbered elements
 # [3] push button "Web Browser" @640,752 48x48
 termdesk action click 3                            # Firefox opens
-termdesk action wait-idle                          # wait until the screen stops changing
-termdesk action state                              # what changed since the last state
-# + [23] entry "Search or enter address" @252,78 780x28 [editable]
+termdesk action wait-for "enter address"           # wait until the address bar shows up
+# [23] entry "Search or enter address" @252,78 780x28 [editable]
 termdesk action set-value 23 https://example.org   # click element 23, select all, type
 termdesk action key Return
+termdesk action wait-idle                          # wait until the screen stops changing
+termdesk action state                              # what changed since the last state
 termdesk action click 640 400                      # or click by desktop pixel
 termdesk action done                               # clear the AGENT ACTING badge
 ```
@@ -82,6 +91,12 @@ termdesk localhost                     # in another
 
 Every session opens a control socket. `termdesk action` sends commands to it, so any agent that can run shell commands can use the desktop. While the agent acts, the pane shows an AGENT ACTING badge, and you can take the mouse back at any time.
 
+So you can watch, an agent should open the session in its own terminal window first:
+
+```bash
+termdesk window work        # new kitty, Ghostty or WezTerm window showing the sandbox
+```
+
 ```text
 state [--full]                 accessibility tree as numbered elements (diff by default)
 screenshot [PATH] [--scale S]  save a PNG
@@ -91,16 +106,17 @@ type TEXT | key COMBO          e.g. key ctrl+l, key Return
 scroll INDEX DY | scroll X Y DY [DX]
 drag X1 Y1 X2 Y2
 wait MS | wait-idle [--idle MS] [--timeout MS]
+wait-for TEXT [--timeout MS]
 record start [PATH] [--fps N] | record stop
-info | done
+info | done | quit
 ```
 
 The accessibility tree is the list of on-screen elements that apps publish for screen readers. Each element comes back with an index, role, name, value and pixel box. The tree works inside a termdesk sandbox. On other VNC hosts, use `screenshot` and pixel coordinates.
 
-Add `--name SESSION` when more than one session runs (`termdesk ls` lists them), and `--json` for machine-readable output. For a session with no pane, on a server or in CI, run:
+Add `--name SESSION` when more than one session runs (`termdesk ls` lists them), and `--json` for machine-readable output. For a session with no window, on a server or in CI, run:
 
 ```bash
-termdesk work --headless --daemon --name work
+termdesk work --headless --daemon
 ```
 
 ### Claude Code skill
@@ -134,7 +150,7 @@ The status line under the desktop shows fps, bytes in and out, and the transport
 
 ## Repo layout
 
-- `termdesk/`: the Python package. `rfb.py` speaks VNC, `gfx.py` draws with kitty graphics, `term.py` reads terminal input, `session.py` runs the loop and control socket, `cli.py` is the entry point, `sandbox.py` wraps Docker, `record.py` writes GIF and MP4.
+- `termdesk/`: the Python package. `rfb.py` speaks VNC, `gfx.py` draws with kitty graphics, `term.py` reads terminal input, `session.py` runs the loop and control socket, `cli.py` is the entry point, `sandbox.py` wraps Docker, `record.py` writes GIF and MP4, `uninstall.py` removes termdesk and what it created.
 - `termdesk/skill/SKILL.md`: the agent skill. `skill/SKILL.md` is a copy for the plugin.
 - `desktop/`: files copied into the sandbox image. `start.sh` boots the desktop, `a11y_dump.py` prints the accessibility tree.
 - `Dockerfile`, `docker-compose.yml`: the XFCE + Firefox desktop image. `tiny.Dockerfile` builds a small xterm desktop for protocol tests.

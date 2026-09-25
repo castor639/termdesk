@@ -35,6 +35,7 @@ class Session:
         self.index_by_key = {}  # stable element indices across state calls
         self.elements = {}  # index -> element dict from the last state
         self.last_state_keys = None
+        self.quit_requested = False
         self.recorder = None
         self.last_damage = time.time()
         self.waiters = []  # (conn, deadline, idle_seconds)
@@ -274,6 +275,9 @@ class Session:
         if cmd == "done":
             self.agent_until = 0.0
             return {"ok": True}
+        if cmd == "quit":
+            self.quit_requested = True
+            return {"ok": True}
         if cmd == "state":
             return self.get_state(full=bool(req.get("full")))
         if cmd == "screenshot":
@@ -492,6 +496,8 @@ class Session:
                 for c, _ in list(self.conns.values()):
                     if c in r:
                         self._serve(c.fileno())
+                if self.quit_requested:
+                    return
                 now = time.time()
                 if rfb.damage:
                     self.last_damage = now

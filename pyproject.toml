@@ -4,7 +4,7 @@ build-backend = "hatchling.build"
 
 [project]
 name = "termdesk"
-version = "0.3.2"
+version = "0.3.3"
 description = "A remote desktop inside a kitty-protocol terminal pane, driven over VNC"
 readme = "README.md"
 license = "MIT"

@@ -1,17 +1,18 @@
 ---
 name: termdesk
-description: Computer use through termdesk. Control a real desktop (a disposable Linux sandbox with Firefox, or any VNC host) from the shell with `termdesk action`, reading an indexed accessibility tree and acting by element index, while the human watches the same screen in their terminal pane. Use when a task needs a GUI, a real browser, a graphical installer, a desktop bug reproduction, or visual evidence of a run.
+description: Computer use through termdesk. Control a real desktop (a disposable Linux sandbox with Firefox, or any VNC host) from the shell with `termdesk action`, reading an indexed accessibility tree and acting by element index, while the human watches it live in a terminal window termdesk opens for them. Use when a task needs a GUI, a real browser, a graphical installer, a desktop bug reproduction, or visual evidence of a run.
 ---
 
 ## Computer Use
 
 Control a desktop that termdesk is showing. The desktop is a sandbox container (`termdesk sandbox`) or any VNC server the human connected to. Prefer purpose-built connectors, APIs, or CLIs when they can do the job; use termdesk for interactions that only exist in a GUI.
 
+- Let the human watch. Before your first action, make sure the session is visible in its own window: run `termdesk window <sandbox|host:port>` (see Sessions and sandboxes). Do not drive an unseen desktop unless the human asked for that.
 - Use `termdesk action <command>` for every UI action. Run it through your shell tool.
 - Do not drive the desktop any other way (no xdotool, no docker exec into the container to synthesize input) unless the human asks for it.
 - One session is the default target. When `termdesk ls` shows several, pass `--name <session>` to every `action`.
 - Session state is persistent: element indices from `state` stay valid until that element disappears, the mouse button mask persists across calls, and a started recording keeps running until `record stop`.
-- The human sees an `AGENT ACTING` badge in their pane while you act and can take the mouse at any time. Run `termdesk action done` when you finish so the badge clears.
+- The human sees an `AGENT ACTING` badge in the window while you act and can take the mouse at any time. Run `termdesk action done` when you finish so the badge clears.
 
 ## API
 
@@ -53,6 +54,11 @@ Timing
                             (default 300), or after --timeout ms (default 5000, then
                             timed_out=True). Idleness is measured from the moment you
                             call it, so it is safe right after an action.
+  wait-for TEXT [--timeout MS]
+                            poll `state --full` until an element whose line contains
+                            TEXT (case-insensitive) appears, then print those lines
+                            (default timeout 30000). Use it after opening an app or
+                            page that may take several seconds to draw.
 
 Recording
   record start [PATH] [--fps N]   PATH.gif, or PATH.mp4 when ffmpeg is installed
@@ -60,6 +66,7 @@ Recording
 
 Housekeeping
   done                      clear the AGENT ACTING badge
+  quit                      close the session and its window (only when the human asks)
 ```
 
 State line format:
@@ -78,8 +85,8 @@ windows: Firefox: "Example Domain — Mozilla Firefox" (active); xfdesktop: "Des
 
 ```bash
 termdesk sandbox up --name work            # XFCE + Firefox container; prints localhost:<port>
-termdesk work --headless --daemon --name work   # a session you can drive without a pane
-termdesk work                              # or, in the human's terminal: show it (blocks; use a split)
+termdesk window work                       # open it in a new terminal window the human can watch
+termdesk work --headless --daemon          # fallback when no window can open (SSH, CI)
 termdesk ls                                # sessions and their addresses
 termdesk sandbox exec work -- firefox https://example.com   # launch apps directly, faster than menus
 termdesk sandbox exec work -- xfce4-terminal
@@ -87,7 +94,13 @@ termdesk sandbox snapshot work clean       # docker commit; restore with `sandbo
 termdesk sandbox down work                 # or --all
 ```
 
-If the human already has a pane open on the sandbox, drive that session so they can watch: `termdesk ls` shows it without the `headless` flag. If no session exists, start a headless one yourself; do not ask the human to open a pane.
+Always show the human what you are doing:
+
+1. Run `termdesk ls`. A session on your target without the `headless` flag means the human is already watching it; drive that one.
+2. Otherwise run `termdesk window <target>`. It opens a new kitty, Ghostty or WezTerm window running the session, waits until the session is live, and replaces a headless session of the same name. The new window takes keyboard focus, so tell the human before you open it, then say what you are about to do in it.
+3. Only if `window` fails (no supported terminal, a remote shell without a display) or the human asked not to see it, start `termdesk <target> --headless --daemon` and say that you are running unseen.
+
+Do not ask the human to open a pane themselves. Leave the window open when you finish so they can inspect the result; run `termdesk action done` to clear the badge, and `termdesk action quit` only if they ask you to close it.
 
 ## Workflow
 

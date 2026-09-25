@@ -1,19 +1,24 @@
-"""termdesk command line: connect, action, ls, sandbox, agent, setup."""
+"""termdesk command line: connect, window, action, ls, sandbox, setup, uninstall."""
 import argparse
 import json
 import os
+import shlex
 import shutil
+import subprocess
 import sys
+import time
 
 from . import __version__
 
-SUBCOMMANDS = ("connect", "action", "ls", "sandbox", "setup", "record")
+SUBCOMMANDS = ("connect", "window", "action", "ls", "sandbox", "setup", "record", "uninstall")
 
-USAGE = """termdesk <host[:port]>                connect a terminal pane to a VNC server
+USAGE = """termdesk <host[:port]>                connect this terminal pane to a VNC server
+termdesk window <host[:port]|sandbox> open it in a new terminal window, so people can watch
 termdesk action [--name N] <cmd...>   drive the open session (see `termdesk action --help`)
 termdesk ls                           list running sessions
 termdesk sandbox up|ls|down|...       disposable desktop containers
 termdesk setup                        install the Claude Code skill
+termdesk uninstall                    remove termdesk and everything it created
 """
 
 
@@ -28,8 +33,9 @@ def main(argv=None):
     cmd = argv[0] if argv[0] in SUBCOMMANDS else "connect"
     rest = argv[1:] if cmd == argv[0] else argv
     try:
-        return {"connect": cmd_connect, "action": cmd_action, "ls": cmd_ls, "sandbox": cmd_sandbox,
-                "setup": cmd_setup, "record": cmd_record}[cmd](rest) or 0
+        return {"connect": cmd_connect, "window": cmd_window, "action": cmd_action, "ls": cmd_ls,
+                "sandbox": cmd_sandbox, "setup": cmd_setup, "record": cmd_record,
+                "uninstall": cmd_uninstall}[cmd](rest) or 0
     except KeyboardInterrupt:
         return 130
     except (RuntimeError, OSError, ValueError) as e:
@@ -89,6 +95,83 @@ def _resolve_target(target):
         return target
 
 
+# ----------------------------------------------------------------- window
+def cmd_window(argv):
+    ap = argparse.ArgumentParser(prog="termdesk window",
+                                 description="Open a session in a new terminal window so people can watch it.")
+    ap.add_argument("target", help="host[:port] of a VNC server, or a sandbox name")
+    ap.add_argument("--name", help="session name (default: derived from target)")
+    args = ap.parse_args(argv)
+
+    from .control import Client, list_sessions, name_for_target
+    name = args.name or name_for_target(args.target)
+    live = {s["name"]: s for s in list_sessions()}
+    if name in live and not live[name].get("headless"):
+        print(f"{name} is already open in a window")
+        return 0
+    if ":" in args.target or "." in args.target or args.target == "localhost":
+        target = args.target
+    else:
+        from . import sandbox
+        target = sandbox.resolve(args.target)
+    if name in live:
+        Client(name).call(cmd="quit")
+        _wait_for(lambda: name not in {s["name"] for s in list_sessions()}, 5)
+
+    term, launch = _new_window_argv([sys.executable, "-m", "termdesk", target, "--name", name], f"termdesk: {name}")
+    null = subprocess.DEVNULL
+    subprocess.Popen(launch, stdin=null, stdout=null, stderr=null, start_new_session=True)
+    if not _wait_for(lambda: name in {s["name"] for s in list_sessions()}, 20):
+        raise RuntimeError(f"{term} opened, but no session named {name} came up within 20s")
+    print(f"opened {name} in a new {term} window; drive it with `termdesk action --name {name} ...`")
+    return 0
+
+
+def _wait_for(ok, seconds):
+    deadline = time.time() + seconds
+    while time.time() < deadline:
+        if ok():
+            return True
+        time.sleep(0.25)
+    return False
+
+
+def _new_window_argv(cmd, title):
+    """(terminal, argv) that opens a new OS window running cmd, preferring the terminal we run in."""
+    mac = sys.platform == "darwin"
+    found = {}
+    for term, app in (("kitty", "kitty"), ("ghostty", "Ghostty"), ("wezterm", "WezTerm")):
+        exe = shutil.which(term)
+        bundle = f"/Applications/{app}.app"
+        if not exe and mac and os.path.isdir(bundle):
+            exe = f"{bundle}/Contents/MacOS/{term}"
+        if exe:
+            found[term] = (exe, bundle)
+    env_term = os.environ.get("TERM_PROGRAM", "").lower()
+    order = ["kitty", "ghostty", "wezterm"]
+    if os.environ.get("KITTY_WINDOW_ID") or os.environ.get("TERM") == "xterm-kitty":
+        order.remove("kitty")
+        order.insert(0, "kitty")
+    elif env_term in order:
+        order.remove(env_term)
+        order.insert(0, env_term)
+    for term in order:
+        if term not in found:
+            continue
+        exe, bundle = found[term]
+        if term == "kitty":
+            return term, [exe, "--title", title, "-o", "remember_window_size=no",
+                          "-o", "initial_window_width=1280", "-o", "initial_window_height=860"] + cmd
+        if term == "ghostty":
+            if mac:  # `-e` through `open --args` can run the command twice
+                return term, ["open", "-na", "Ghostty.app", "--args", f"--title={title}",
+                              "--initial-command=" + shlex.join(cmd)]
+            return term, [exe, f"--title={title}", "-e"] + cmd
+        return term, [exe, "start", "--always-new-process", "--"] + cmd
+    raise RuntimeError("no kitty, Ghostty or WezTerm found to open a window; "
+                       "run `termdesk <target>` in one yourself, or use --headless")
+
+
 def _daemonize(log):
     if os.fork():
         os._exit(0)
@@ -118,8 +201,9 @@ ACTION_HELP = """commands:
   screenshot [PATH] [--scale S]     save a PNG (or print base64 with --json and no PATH)
   wait MS
   wait-idle [--idle MS] [--timeout MS]   block until the screen stops changing
+  wait-for TEXT [--timeout MS]      poll state until an element containing TEXT appears; prints it
   record start [PATH] [--fps N] | record stop
-  info | done                       done clears the AGENT ACTING badge
+  info | done | quit                done clears the AGENT ACTING badge, quit closes the session
 N is an element number from your latest `state`. X Y are remote desktop pixels; `info` prints the size."""
 
 
@@ -135,8 +219,11 @@ def cmd_action(argv):
         ap.print_help()
         return 1
     from .control import Client
+    client = Client(args.name)
+    if words[0] in ("wait-for", "wait_for"):
+        return _wait_for_element(client, words[1:], args.json)
     req = parse_action(words)
-    resp = Client(args.name).call(**req)
+    resp = client.call(**req)
     if args.json:
         print(json.dumps(resp))
     else:
@@ -148,6 +235,27 @@ def cmd_action(argv):
         elif resp:
             print("  ".join(f"{k}={v}" for k, v in resp.items()))
     return 0
+
+
+def _wait_for_element(client, words, as_json):
+    """Poll `state` until an element line contains TEXT, then print the matching lines."""
+    words = list(words)
+    timeout = float(_flag(words, "--timeout", 30000)) / 1000
+    text = " ".join(words).lower()
+    if not text:
+        raise ValueError("wait-for needs the text to look for")
+    deadline = time.time() + timeout
+    while True:
+        state = client.call("state", full=True)["state"]
+        hits = [l for l in state.splitlines() if l.startswith("[") and text in l.lower()]
+        if hits or time.time() >= deadline:
+            break
+        time.sleep(0.5)
+    if as_json:
+        print(json.dumps({"found": bool(hits), "lines": hits}))
+    else:
+        print("\n".join(hits) if hits else f"timed_out=True  no element matching {text!r}")
+    return 0 if hits else 1
 
 
 def _flag(words, name, default=None, takes_value=True):
@@ -210,7 +318,7 @@ def parse_action(words):
         if words:
             req["path"] = words[0]
         return req
-    if cmd in ("info", "done"):
+    if cmd in ("info", "done", "quit"):
         return {"cmd": cmd}
     raise ValueError(f"unknown action {cmd!r}; try `termdesk action --help`")
 
@@ -240,6 +348,12 @@ def cmd_ls(argv):
 def cmd_sandbox(argv):
     from . import sandbox
     return sandbox.main(argv)
+
+
+# -------------------------------------------------------------- uninstall
+def cmd_uninstall(argv):
+    from . import uninstall
+    return uninstall.main(argv)
 
 
 # ------------------------------------------------------------------ setup
