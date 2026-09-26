@@ -1,7 +1,8 @@
-"""termdesk command line: connect, window, action, ls, sandbox, setup, uninstall."""
+"""termdesk command line: connect, window, action, ls, sandbox, mcp, guide, setup, uninstall."""
 import argparse
 import json
 import os
+import re
 import shlex
 import shutil
 import subprocess
@@ -10,16 +11,19 @@ import time
 
 from . import __version__
 
-SUBCOMMANDS = ("connect", "window", "action", "ls", "sandbox", "setup", "record", "uninstall")
+SUBCOMMANDS = ("connect", "window", "action", "ls", "sandbox", "setup", "record", "uninstall", "mcp", "guide")
 
 USAGE = """termdesk <host[:port]>                connect this terminal pane to a VNC server
 termdesk window <host[:port]|sandbox> open it in a new terminal window, so people can watch
 termdesk action [--name N] <cmd...>   drive the open session (see `termdesk action --help`)
 termdesk ls                           list running sessions
-termdesk sandbox up|ls|down|...       disposable desktop containers
+termdesk sandbox up|ls|down|cp|...    disposable desktop containers
+termdesk mcp                          MCP server on stdio, for any MCP client
+termdesk guide                        print the agent guide, for agents without the skill
 termdesk setup                        install the Claude Code skill
 termdesk uninstall                    remove termdesk and everything it created
 """
+MCP_CONFIG = '{"mcpServers": {"termdesk": {"command": "termdesk", "args": ["mcp"]}}}'
 
 
 def main(argv=None):
@@ -35,7 +39,7 @@ def main(argv=None):
     try:
         return {"connect": cmd_connect, "window": cmd_window, "action": cmd_action, "ls": cmd_ls,
                 "sandbox": cmd_sandbox, "setup": cmd_setup, "record": cmd_record,
-                "uninstall": cmd_uninstall}[cmd](rest) or 0
+                "uninstall": cmd_uninstall, "mcp": cmd_mcp, "guide": cmd_guide}[cmd](rest) or 0
     except KeyboardInterrupt:
         return 130
     except (RuntimeError, OSError, ValueError) as e:
@@ -102,18 +106,22 @@ def cmd_window(argv):
     ap.add_argument("target", help="host[:port] of a VNC server, or a sandbox name")
     ap.add_argument("--name", help="session name (default: derived from target)")
     args = ap.parse_args(argv)
+    print(open_window(args.target, args.name))
+    return 0
 
+
+def open_window(target, name=None):
+    """Run a session on target in a new terminal window, replacing a background one of the same name."""
     from .control import Client, list_sessions, name_for_target
-    name = args.name or name_for_target(args.target)
+    name = name or name_for_target(target)
     live = {s["name"]: s for s in list_sessions()}
+    if name in live and live[name].get("busy"):
+        raise RuntimeError(f"session {name} is busy; try again in a few seconds")
     if name in live and not live[name].get("headless"):
-        print(f"{name} is already open in a window")
-        return 0
-    if ":" in args.target or "." in args.target or args.target == "localhost":
-        target = args.target
-    else:
+        return f"{name} is already open in a window"
+    if not (":" in target or "." in target or target == "localhost"):
         from . import sandbox
-        target = sandbox.resolve(args.target)
+        target = sandbox.resolve(target)
     if name in live:
         Client(name).call(cmd="quit")
         _wait_for(lambda: name not in {s["name"] for s in list_sessions()}, 5)
@@ -123,8 +131,7 @@ def cmd_window(argv):
     subprocess.Popen(launch, stdin=null, stdout=null, stderr=null, start_new_session=True)
     if not _wait_for(lambda: name in {s["name"] for s in list_sessions()}, 20):
         raise RuntimeError(f"{term} opened, but no session named {name} came up within 20s")
-    print(f"opened {name} in a new {term} window; drive it with `termdesk action --name {name} ...`")
-    return 0
+    return f"opened {name} in a new {term} window; drive it with `termdesk action --name {name} ...`"
 
 
 def _wait_for(ok, seconds):
@@ -189,22 +196,37 @@ def _daemonize(log):
 
 # ----------------------------------------------------------------- action
 ACTION_HELP = """commands:
-  state [--full]                    the screen as numbered elements (changes only, --full for all)
+  state [--full] [--window TEXT] [--focused] [--cells N]
+                                    the screen as numbered elements (changes only, --full for all);
+                                    --window: only windows whose title contains TEXT, --focused: only
+                                    the focused element, --cells: at most N visible table cells (300)
   click N | click X Y [--right|--middle] [--double]
-  set-value N TEXT...               click element N, select all, type TEXT
+  set-value N TEXT... [--paste|--keys]   click element N, select all, type TEXT (checked like type)
   scroll N DY | scroll X Y DY [DX]  positive DY scrolls down
   move N|X Y | mousedown N|X Y | mouseup N|X Y
   drag X1 Y1 X2 Y2
-  type TEXT...                      type literal text
+  type TEXT... [--paste|--keys] [--delay-ms N]
+                                    type literal text. Text off the US keymap (accents, CJK, emoji,
+                                    curly quotes) goes through the clipboard and ctrl+v (ctrl+shift+v in
+                                    a terminal); --paste forces that, --keys forces keysyms, --delay-ms
+                                    paces keysyms for slow VNC servers. In a sandbox the reply names the
+                                    focused element and says verified=True/False (None: cannot tell),
+                                    with want, got and first_bad_offset on a mismatch, and a warning
+                                    when focus is on a button or menu, where letters get lost
   key COMBO                         e.g. ctrl+l, Return, alt+F4, ctrl+shift+t
-  paste TEXT...                     send text to the remote clipboard
+  open FILE|URL                     open a URL, or a file in its default app; a host file is copied
+                                    into /home/guest first (sandboxes only)
+  paste TEXT...                     put UTF-8 text on the remote clipboard (does not press ctrl+v)
+  clipboard                         print the remote clipboard text
   screenshot [PATH] [--scale S]     save a PNG (or print base64 with --json and no PATH)
   wait MS
   wait-idle [--idle MS] [--timeout MS]   block until the screen stops changing
-  wait-for TEXT [--timeout MS]      poll state until an element containing TEXT appears; prints it
+  wait-for TEXT [--timeout MS]      poll state until an element or a window title contains TEXT
+                                    (ignoring case and curly quotes); prints the lines, exit 1 on timeout
   record start [PATH] [--fps N] | record stop
   info | done | quit                done clears the AGENT ACTING badge, quit closes the session
-N is an element number from your latest `state`. X Y are remote desktop pixels; `info` prints the size."""
+N is an element number from your latest `state`. X Y are remote desktop pixels; `info` prints the size.
+Flags go before a `--`; everything after it is text, e.g. type -- --not-a-flag"""
 
 
 def cmd_action(argv):
@@ -214,7 +236,7 @@ def cmd_action(argv):
     ap.add_argument("--json", action="store_true")
     ap.add_argument("cmd", nargs=argparse.REMAINDER)
     args = ap.parse_args(argv)
-    words = [w for w in args.cmd if w != "--"] if args.cmd[:1] == ["--"] else args.cmd
+    words = args.cmd[1:] if args.cmd[:1] == ["--"] else args.cmd
     if not words:
         ap.print_help()
         return 1
@@ -223,39 +245,100 @@ def cmd_action(argv):
     if words[0] in ("wait-for", "wait_for"):
         return _wait_for_element(client, words[1:], args.json)
     req = parse_action(words)
+    if req["cmd"] in ("wait", "wait_idle"):
+        client.timeout = max(client.timeout, float(req.get("ms") or req.get("timeout_ms") or 0) / 1000 + 30)
+    elif req.get("delay_ms"):
+        client.timeout += len(req.get("text", "")) * req["delay_ms"] / 1000
     resp = client.call(**req)
     if args.json:
         print(json.dumps(resp))
+    elif "png_base64" in resp:
+        print(resp["png_base64"])
     else:
-        resp.pop("ok", None)
-        if "png_base64" in resp:
-            print(resp["png_base64"])
-        elif "state" in resp:
-            print(resp["state"])
-        elif resp:
-            print("  ".join(f"{k}={v}" for k, v in resp.items()))
+        text = format_reply(req["cmd"], resp)
+        if text:
+            print(text)
     return 0
 
 
+def format_reply(cmd, resp):
+    """A control reply as text: state and clipboard as they are, anything else as key=value pairs."""
+    resp = {k: v for k, v in resp.items() if k != "ok"}
+    if "state" in resp:
+        return resp["state"]
+    if cmd == "clipboard":
+        return resp.get("text", "")
+    return "  ".join(f"{k}={_show(k, v)}" for k, v in resp.items())
+
+
+def _show(key, value):
+    if isinstance(value, (dict, list)) or key in ("want", "got"):
+        return json.dumps(value, ensure_ascii=False)
+    return str(value)
+
+
+_QUOTES = str.maketrans({"\u2018": "'", "\u2019": "'", "\u201c": '"', "\u201d": '"'})
+_JSON_STR = re.compile(r'"(?:[^"\\]|\\.)*"')
+
+
+def _loose(text, decode=False):
+    """Lowercase with curly quotes straightened; decode=True also unescapes the JSON strings of a state line."""
+    if decode:
+        def raw(m):
+            try:
+                return '"' + json.loads(m.group()) + '"'
+            except ValueError:
+                return m.group()
+        text = _JSON_STR.sub(raw, text)
+    return text.translate(_QUOTES).lower()
+
+
+def _state_matches(state, text):
+    """Element lines and `== window` headers containing text, else the windows: line if a title does."""
+    want = _loose(text)
+    lines = state.split("\n")
+    hits = [l for l in lines if l.startswith(("[", "== ")) and want in _loose(l, decode=True)]
+    if not hits and lines[0].startswith("windows: ") and want in _loose(lines[0]):
+        hits = [lines[0]]
+    return hits
+
+
 def _wait_for_element(client, words, as_json):
-    """Poll `state` until an element line contains TEXT, then print the matching lines."""
+    """Poll `state` until an element or window title contains TEXT, then print the matching lines."""
     words = list(words)
     timeout = float(_flag(words, "--timeout", 30000)) / 1000
-    text = " ".join(words).lower()
+    text = " ".join(words)
+    hits, error = wait_for_text(client, text, timeout)
+    if as_json:
+        print(json.dumps({"found": bool(hits), "lines": hits, "error": str(error) if error else None}))
+    elif hits:
+        print("\n".join(hits))
+    else:
+        print(f"timed_out=True  no element or window matching {text!r}" + (f"  last error: {error}" if error else ""))
+    return 0 if hits else 1
+
+
+def wait_for_text(client, text, timeout):
+    """(matching state lines, last error) once an element or window title contains text, or at timeout."""
+    from .control import SessionError
     if not text:
         raise ValueError("wait-for needs the text to look for")
     deadline = time.time() + timeout
+    hits, error = [], None
     while True:
-        state = client.call("state", full=True)["state"]
-        hits = [l for l in state.splitlines() if l.startswith("[") and text in l.lower()]
+        client.timeout = max(2.0, deadline - time.time() + 1)
+        try:
+            hits = _state_matches(client.call("state", full=True)["state"], text)
+            error = None
+        except SessionError as e:
+            if e.permanent:
+                raise
+            error = e
+        except (RuntimeError, OSError) as e:
+            error = e
         if hits or time.time() >= deadline:
-            break
+            return hits, error
         time.sleep(0.5)
-    if as_json:
-        print(json.dumps({"found": bool(hits), "lines": hits}))
-    else:
-        print("\n".join(hits) if hits else f"timed_out=True  no element matching {text!r}")
-    return 0 if hits else 1
 
 
 def _flag(words, name, default=None, takes_value=True):
@@ -270,6 +353,30 @@ def _flag(words, name, default=None, takes_value=True):
     return default
 
 
+def _text_words(words, flags):
+    """Pull flags (name -> takes a value) out of the words before any `--`; returns (flags, other words)."""
+    head, tail = list(words), []
+    if "--" in words:
+        i = words.index("--")
+        head, tail = list(words[:i]), list(words[i + 1:])
+    return {name: _flag(head, name, None, takes) for name, takes in flags.items()}, head + tail
+
+
+def _type_req(cmd, words):
+    flags, words = _text_words(words, {"--paste": False, "--keys": False, "--delay-ms": True})
+    req = {"cmd": cmd}
+    if cmd == "set_value":
+        req["index"] = int(words.pop(0))
+    req["text"] = " ".join(words)
+    if flags["--paste"] and flags["--keys"]:
+        raise ValueError("pick one of --paste and --keys")
+    if flags["--paste"] or flags["--keys"]:
+        req["mode"] = "paste" if flags["--paste"] else "keys"
+    if flags["--delay-ms"]:
+        req["delay_ms"] = float(flags["--delay-ms"])
+    return req
+
+
 def parse_action(words):
     words = list(words)
     cmd = words.pop(0).replace("-", "_")
@@ -282,7 +389,17 @@ def parse_action(words):
             req["scale"] = float(scale)
         return req
     if cmd == "state":
-        return {"cmd": "state", "full": bool(_flag(words, "--full", False, False))}
+        req = {"cmd": "state", "full": bool(_flag(words, "--full", False, False))}
+        if _flag(words, "--focused", False, False):
+            req["focused"] = True
+        window, cells = _flag(words, "--window"), _flag(words, "--cells")
+        if window:
+            req["window"] = window
+        if cells:
+            req["cells"] = int(cells)
+        if words:
+            raise ValueError(f"state does not take {' '.join(words)!r}; try `termdesk action --help`")
+        return req
     if cmd in ("click", "move", "mousedown", "mouseup"):
         button = "right" if _flag(words, "--right", False, False) else "middle" if _flag(words, "--middle", False, False) else "left"
         count = 2 if _flag(words, "--double", False, False) else 1
@@ -292,8 +409,8 @@ def parse_action(words):
         else:
             req["x"], req["y"] = float(words[0]), float(words[1])
         return req
-    if cmd == "set_value":
-        return {"cmd": "set_value", "index": int(words[0]), "text": " ".join(words[1:])}
+    if cmd in ("type", "set_value"):
+        return _type_req(cmd, words)
     if cmd == "drag":
         return {"cmd": "drag", "x": float(words[0]), "y": float(words[1]), "to_x": float(words[2]), "to_y": float(words[3])}
     if cmd == "scroll":
@@ -301,8 +418,13 @@ def parse_action(words):
             return {"cmd": "scroll", "index": int(words[0]), "dy": int(words[1]), "dx": 0}
         return {"cmd": "scroll", "x": float(words[0]), "y": float(words[1]), "dy": int(words[2]),
                 "dx": int(words[3]) if len(words) > 3 else 0}
-    if cmd in ("type", "paste"):
-        return {"cmd": cmd, "text": " ".join(words)}
+    if cmd == "paste":
+        return {"cmd": cmd, "text": " ".join(_text_words(words, {})[1])}
+    if cmd == "open":
+        target = " ".join(words)
+        if not target:
+            raise ValueError("open needs a file or a URL")
+        return {"cmd": "open", "target": os.path.abspath(target) if os.path.exists(target) else target}
     if cmd == "key":
         return {"cmd": "key", "combo": words[0]}
     if cmd == "wait":
@@ -318,7 +440,7 @@ def parse_action(words):
         if words:
             req["path"] = words[0]
         return req
-    if cmd in ("info", "done", "quit"):
+    if cmd in ("info", "done", "quit", "clipboard"):
         return {"cmd": cmd}
     raise ValueError(f"unknown action {cmd!r}; try `termdesk action --help`")
 
@@ -338,6 +460,9 @@ def cmd_ls(argv):
     if not live:
         print("no sessions")
     for s in live:
+        if s.get("busy"):
+            print(f"{s['name']:24} busy (did not answer within 1s; still running)")
+            continue
         flags = " headless" if s.get("headless") else ""
         flags += " recording" if s.get("recording") else ""
         print(f"{s['name']:24} {s.get('addr') or ''}  {s.get('target', '')}  {s.get('width')}x{s.get('height')}{flags}")
@@ -357,13 +482,38 @@ def cmd_uninstall(argv):
 
 
 # ------------------------------------------------------------------ setup
+SKILL = os.path.join(os.path.dirname(__file__), "skill", "SKILL.md")
+
+
 def cmd_setup(argv):
     """Install the Claude Code skill so agents know how to drive termdesk."""
-    src = os.path.join(os.path.dirname(__file__), "skill", "SKILL.md")
     dest_dir = os.path.expanduser("~/.claude/skills/termdesk")
     os.makedirs(dest_dir, exist_ok=True)
-    shutil.copy(src, os.path.join(dest_dir, "SKILL.md"))
+    shutil.copy(SKILL, os.path.join(dest_dir, "SKILL.md"))
     print(f"installed {dest_dir}/SKILL.md")
+    print("other agents: add the MCP server " + MCP_CONFIG)
+    print("              or give them the guide: termdesk guide >> AGENTS.md")
     if not shutil.which("docker"):
         print("docker not found: `termdesk sandbox` will not work until it is installed")
     return 0
+
+
+# ------------------------------------------------------------------ guide
+def guide_text():
+    """The agent guide: SKILL.md without its front matter."""
+    with open(SKILL, encoding="utf-8") as f:
+        text = f.read()
+    if text.startswith("---\n"):
+        text = text.split("\n---\n", 1)[1]
+    return text.lstrip("\n")
+
+
+def cmd_guide(argv):
+    sys.stdout.write(guide_text())
+    return 0
+
+
+# -------------------------------------------------------------------- mcp
+def cmd_mcp(argv):
+    from . import mcp
+    return mcp.main(argv)

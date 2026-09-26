@@ -175,7 +175,9 @@
       <code class="cmd"><span class="p">$ </span>termdesk action state</code>
       <p>Hands your agent the screen as numbered buttons and fields. It clicks by number.</p>
       <code class="cmd"><span class="p">$ </span>termdesk sandbox up</code>
-      <p>Starts a throwaway desktop in Docker. Wreck it, then delete it.</p>
+      <p>Starts a throwaway desktop in Docker, with Firefox and LibreOffice. Wreck it, then delete it.</p>
+      <code class="cmd"><span class="p">$ </span>termdesk mcp</code>
+      <p>Works with any agent: Claude Code through its skill, anything else over MCP or the shell.</p>
     </div>
   </section>
 
@@ -187,8 +189,9 @@
 <span class="c">[3] push button "Web Browser" @640,752 48x48</span>
 <span class="p">$ </span>termdesk action click 3             <span class="c"># Firefox opens</span>
 <span class="p">$ </span>termdesk action wait-for "enter address"
-<span class="c">[23] entry "Search or enter address" @252,78 780x28 [editable]</span>
-<span class="p">$ </span>termdesk action set-value 23 https://example.org
+<span class="c">[11] entry "Search or enter address" @272,78 788x28 [focused, editable]</span>
+<span class="p">$ </span>termdesk action set-value 11 https://example.org
+<span class="c">verified=True</span>
 <span class="p">$ </span>termdesk action key Return</pre>
   </section>
 
@@ -200,7 +203,7 @@
       <dt>Input</dt>
       <dd>Your keys and mouse go back as VNC events. Modifiers, key repeat and releases all work.</dd>
       <dt>Semantics</dt>
-      <dd>In a sandbox, your agent reads each button's role, name and position from the accessibility tree.</dd>
+      <dd>In a sandbox, your agent reads each button's role, name and position, and the value of every visible table cell, from the accessibility tree. When it types, it hears back whether the text landed.</dd>
       <dt>Control</dt>
       <dd>An <code>AGENT ACTING</code> badge shows while your agent drives. Grab the mouse and you're back in charge.</dd>
     </dl>
@@ -217,12 +220,12 @@
   <div class="wf-inner">
     <div>
       <a class="wf-pill" href="#install">Install termdesk <span>&rarr;</span></a>
-      <p class="wf-copy">termdesk 0.3.3 &middot; MIT</p>
+      <p class="wf-copy">termdesk 0.4.0 &middot; MIT</p>
     </div>
     <nav class="wf-links">
       <a class="wf-by" href="https://warpfield.me"><svg viewBox="0 0 100 100" aria-hidden="true"><path d="M9.13 20.81L11.43 21.00L13.74 21.22L16.07 21.48L18.39 21.78L20.72 22.11L23.03 22.48L25.32 22.88L27.57 23.30L29.79 23.75L31.95 24.21L34.04 24.67L36.07 25.13L38.03 25.58L39.92 25.99L41.73 26.36L43.47 26.69L45.16 26.95L46.80 27.15L48.41 27.26L50.00 27.30L51.59 27.26L53.20 27.15L54.84 26.95L56.53 26.69L58.27 26.36L60.08 25.99L61.97 25.58L63.93 25.13L65.96 24.67L68.05 24.21L70.21 23.75L72.43 23.30L74.68 22.88L76.97 22.48L79.28 22.11L81.61 21.78L83.93 21.48L86.26 21.22L88.57 21.00L90.87 20.81"/><path d="M20.81 9.13L21.00 11.43L21.22 13.74L21.48 16.07L21.78 18.39L22.11 20.72L22.48 23.03L22.88 25.32L23.30 27.57L23.75 29.79L24.21 31.95L24.67 34.04L25.13 36.07L25.58 38.03L25.99 39.92L26.36 41.73L26.69 43.47L26.95 45.16L27.15 46.80L27.26 48.41L27.30 50.00L27.26 51.59L27.15 53.20L26.95 54.84L26.69 56.53L26.36 58.27L25.99 60.08L25.58 61.97L25.13 63.93L24.67 65.96L24.21 68.05L23.75 70.21L23.30 72.43L22.88 74.68L22.48 76.97L22.11 79.28L21.78 81.61L21.48 83.93L21.22 86.26L21.00 88.57L20.81 90.87"/><path d="M11.06 40.73L13.71 40.90L16.39 41.11L19.10 41.35L21.82 41.61L24.53 41.91L27.21 42.25L29.82 42.61L32.34 42.99L34.75 43.40L37.01 43.81L39.10 44.24L41.01 44.65L42.73 45.05L44.24 45.43L45.55 45.77L46.69 46.06L47.67 46.30L48.52 46.47L49.28 46.58L50.00 46.62L50.72 46.58L51.48 46.47L52.33 46.30L53.31 46.06L54.45 45.77L55.76 45.43L57.27 45.05L58.99 44.65L60.90 44.24L62.99 43.81L65.25 43.40L67.66 42.99L70.18 42.61L72.79 42.25L75.47 41.91L78.18 41.61L80.90 41.35L83.61 41.11L86.29 40.90L88.94 40.73"/><path d="M40.73 11.06L40.90 13.71L41.11 16.39L41.35 19.10L41.61 21.82L41.91 24.53L42.25 27.21L42.61 29.82L42.99 32.34L43.40 34.75L43.81 37.01L44.24 39.10L44.65 41.01L45.05 42.73L45.43 44.24L45.77 45.55L46.06 46.69L46.30 47.67L46.47 48.52L46.58 49.28L46.62 50.00L46.58 50.72L46.47 51.48L46.30 52.33L46.06 53.31L45.77 54.45L45.43 55.76L45.05 57.27L44.65 58.99L44.24 60.90L43.81 62.99L43.40 65.25L42.99 67.66L42.61 70.18L42.25 72.79L41.91 75.47L41.61 78.18L41.35 80.90L41.11 83.61L40.90 86.29L40.73 88.94"/><path d="M11.06 59.27L13.71 59.10L16.39 58.89L19.10 58.65L21.82 58.39L24.53 58.09L27.21 57.75L29.82 57.39L32.34 57.01L34.75 56.60L37.01 56.19L39.10 55.76L41.01 55.35L42.73 54.95L44.24 54.57L45.55 54.23L46.69 53.94L47.67 53.70L48.52 53.53L49.28 53.42L50.00 53.38L50.72 53.42L51.48 53.53L52.33 53.70L53.31 53.94L54.45 54.23L55.76 54.57L57.27 54.95L58.99 55.35L60.90 55.76L62.99 56.19L65.25 56.60L67.66 57.01L70.18 57.39L72.79 57.75L75.47 58.09L78.18 58.39L80.90 58.65L83.61 58.89L86.29 59.10L88.94 59.27"/><path d="M59.27 11.06L59.10 13.71L58.89 16.39L58.65 19.10L58.39 21.82L58.09 24.53L57.75 27.21L57.39 29.82L57.01 32.34L56.60 34.75L56.19 37.01L55.76 39.10L55.35 41.01L54.95 42.73L54.57 44.24L54.23 45.55L53.94 46.69L53.70 47.67L53.53 48.52L53.42 49.28L53.38 50.00L53.42 50.72L53.53 51.48L53.70 52.33L53.94 53.31L54.23 54.45L54.57 55.76L54.95 57.27L55.35 58.99L55.76 60.90L56.19 62.99L56.60 65.25L57.01 67.66L57.39 70.18L57.75 72.79L58.09 75.47L58.39 78.18L58.65 80.90L58.89 83.61L59.10 86.29L59.27 88.94"/><path d="M9.13 79.19L11.43 79.00L13.74 78.78L16.07 78.52L18.39 78.22L20.72 77.89L23.03 77.52L25.32 77.12L27.57 76.70L29.79 76.25L31.95 75.79L34.04 75.33L36.07 74.87L38.03 74.42L39.92 74.01L41.73 73.64L43.47 73.31L45.16 73.05L46.80 72.85L48.41 72.74L50.00 72.70L51.59 72.74L53.20 72.85L54.84 73.05L56.53 73.31L58.27 73.64L60.08 74.01L61.97 74.42L63.93 74.87L65.96 75.33L68.05 75.79L70.21 76.25L72.43 76.70L74.68 77.12L76.97 77.52L79.28 77.89L81.61 78.22L83.93 78.52L86.26 78.78L88.57 79.00L90.87 79.19"/><path d="M79.19 9.13L79.00 11.43L78.78 13.74L78.52 16.07L78.22 18.39L77.89 20.72L77.52 23.03L77.12 25.32L76.70 27.57L76.25 29.79L75.79 31.95L75.33 34.04L74.87 36.07L74.42 38.03L74.01 39.92L73.64 41.73L73.31 43.47L73.05 45.16L72.85 46.80L72.74 48.41L72.70 50.00L72.74 51.59L72.85 53.20L73.05 54.84L73.31 56.53L73.64 58.27L74.01 60.08L74.42 61.97L74.87 63.93L75.33 65.96L75.79 68.05L76.25 70.21L76.70 72.43L77.12 74.68L77.52 76.97L77.89 79.28L78.22 81.61L78.52 83.93L78.78 86.26L79.00 88.57L79.19 90.87"/></svg>A Warpfield project</a>
       <a href="/install">Install script</a>
-      <a href="/dl/termdesk-0.3.3-py3-none-any.whl">Wheel 0.3.3</a>
+      <a href="/dl/termdesk-0.4.0-py3-none-any.whl">Wheel 0.4.0</a>
     </nav>
   </div>
 </footer>

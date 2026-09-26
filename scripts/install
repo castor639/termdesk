@@ -4,7 +4,7 @@
 set -euo pipefail
 
 BASE="${TERMDESK_BASE:-https://termdesk.warpfield.me}"
-VERSION="${TERMDESK_VERSION:-0.3.3}"
+VERSION="${TERMDESK_VERSION:-0.4.0}"
 WHEEL="$BASE/dl/termdesk-$VERSION-py3-none-any.whl"
 
 say() { printf '\033[1;36mtermdesk\033[0m %s\n' "$*"; }
@@ -46,10 +46,11 @@ say "installed $(termdesk --version)"
 cat <<EOF
 
   termdesk host:port                 show a VNC desktop in this pane
-  termdesk sandbox up --name work    disposable XFCE + Firefox desktop (docker)
+  termdesk sandbox up --name work    disposable XFCE, Firefox and LibreOffice desktop (docker)
   termdesk work                      show it
   termdesk window work               or open it in a new window
   termdesk action state              drive it from another shell
+  termdesk mcp                       MCP server, for agents other than Claude Code
   termdesk uninstall                 remove termdesk and everything it created
 
 EOF

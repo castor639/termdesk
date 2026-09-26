@@ -2,6 +2,7 @@
 import select
 import socket
 import struct
+import threading
 import zlib
 
 from PIL import Image
@@ -12,7 +13,10 @@ except ImportError:  # ZRLE needs numpy; everything else works without it
     np = None
 
 ENC_RAW, ENC_COPYRECT, ENC_ZLIB, ENC_ZRLE = 0, 1, 6, 16
-ENC_DESKTOPSIZE, ENC_CONTINUOUS = -223, -313
+ENC_DESKTOPSIZE, ENC_CONTINUOUS, ENC_EXT_CLIPBOARD = -223, -313, -1063131698
+# Extended Clipboard flags: formats in the low bits, actions in the high byte
+CLIP_UTF8 = 1
+CLIP_CAPS, CLIP_REQUEST, CLIP_PEEK, CLIP_NOTIFY, CLIP_PROVIDE = (1 << n for n in range(24, 29))
 
 
 class RFB:
@@ -20,6 +24,7 @@ class RFB:
         self.sock = socket.create_connection((host, port), timeout=10)
         self.sock.settimeout(None)
         self.sock.setsockopt(socket.IPPROTO_TCP, socket.TCP_NODELAY, 1)
+        self.send_lock = threading.Lock()  # input can come from control-socket worker threads
         self.buf = bytearray()
         self.pos = 0
         self.bytes_in = 0
@@ -47,7 +52,7 @@ class RFB:
         self.sock.sendall(b"\x00\x00\x00\x00" + pf)
         if encodings is None:
             encodings = ([ENC_ZRLE] if np is not None else []) + [ENC_ZLIB, ENC_COPYRECT, ENC_RAW]
-        encs = list(encodings) + [ENC_DESKTOPSIZE, ENC_CONTINUOUS]
+        encs = list(encodings) + [ENC_DESKTOPSIZE, ENC_CONTINUOUS, ENC_EXT_CLIPBOARD]
         self.sock.sendall(struct.pack(">BxH", 2, len(encs)) + struct.pack(f">{len(encs)}i", *encs))
         self.zstream = zlib.decompressobj()
         self.fb = Image.new("RGB", (self.w, self.h), "black")
@@ -55,6 +60,13 @@ class RFB:
         self.resized = False
         self.continuous = False  # server supports it
         self.continuous_on = False
+        self.clip_ext = False  # server speaks the UTF-8 Extended Clipboard
+        self.clipboard = None  # last clipboard text the server sent
+        self.own_clip = None
+
+    def send(self, data):
+        with self.send_lock:
+            self.sock.sendall(data)
 
     def _fill(self):
         chunk = self.sock.recv(1 << 20)
@@ -81,23 +93,59 @@ class RFB:
         return self._read(struct.unpack(">I", self._read(4))[0]).decode(errors="replace")
 
     def request(self, incremental=True):
-        self.sock.sendall(struct.pack(">BBHHHH", 3, int(incremental), 0, 0, self.w, self.h))
+        self.send(struct.pack(">BBHHHH", 3, int(incremental), 0, 0, self.w, self.h))
 
     def enable_continuous(self):
-        self.sock.sendall(struct.pack(">BBHHHH", 150, 1, 0, 0, self.w, self.h))
+        self.send(struct.pack(">BBHHHH", 150, 1, 0, 0, self.w, self.h))
         self.continuous_on = True
 
     def pointer(self, x, y, mask):
         x = min(max(int(x), 0), self.w - 1)
         y = min(max(int(y), 0), self.h - 1)
-        self.sock.sendall(struct.pack(">BBHH", 5, mask, x, y))
+        self.send(struct.pack(">BBHH", 5, mask, x, y))
 
     def key(self, keysym, down):
-        self.sock.sendall(struct.pack(">BBxxI", 4, int(down), keysym))
+        self.send(struct.pack(">BBxxI", 4, int(down), keysym))
 
     def cut_text(self, text):
+        """Set the remote clipboard. False when the server only takes Latin-1 and text did not fit."""
+        if self.clip_ext:
+            self.own_clip = self.clipboard = text
+            self._clip_msg(CLIP_NOTIFY | CLIP_UTF8)
+            self._clip_provide(text)
+            return True
         data = text.encode("latin-1", "replace")
-        self.sock.sendall(struct.pack(">BxxxI", 6, len(data)) + data)
+        self.clipboard = data.decode("latin-1")
+        self.send(struct.pack(">BxxxI", 6, len(data)) + data)
+        return self.clipboard == text
+
+    def _clip_msg(self, flags, payload=b""):
+        self.send(struct.pack(">BxxxiI", 6, -(4 + len(payload)), flags) + payload)
+
+    def _clip_provide(self, text):
+        data = text.replace("\r\n", "\n").replace("\n", "\r\n").encode() + b"\0"
+        self._clip_msg(CLIP_PROVIDE | CLIP_UTF8, zlib.compress(struct.pack(">I", len(data)) + data))
+
+    def _server_clip(self, msg):
+        flags = struct.unpack(">I", msg[:4])[0]
+        if flags & CLIP_CAPS:
+            self.clip_ext = True
+        elif flags & CLIP_NOTIFY:
+            if flags & CLIP_UTF8:
+                self.own_clip = None
+                self._clip_msg(CLIP_REQUEST | CLIP_UTF8)
+            elif self.own_clip is None:  # Xvnc also sends an empty notify right after we take the clipboard
+                self.clipboard = ""
+        elif flags & CLIP_REQUEST:
+            if self.own_clip is not None:
+                self._clip_provide(self.own_clip)
+        elif flags & CLIP_PEEK:
+            if self.own_clip is not None:
+                self._clip_msg(CLIP_NOTIFY | CLIP_UTF8)
+        elif flags & CLIP_PROVIDE and flags & CLIP_UTF8:
+            data = zlib.decompressobj().decompress(msg[4:])
+            n = struct.unpack(">I", data[:4])[0] if len(data) >= 4 else 0
+            self.clipboard = data[4:4 + n].rstrip(b"\0").decode("utf-8", "replace").replace("\r\n", "\n")
 
     def _paste(self, x, y, w, h, data):
         self.fb.paste(Image.frombuffer("RGB", (w, h), data, "raw", "BGRX", 0, 1), (x, y))
@@ -140,7 +188,11 @@ class RFB:
             pass  # bell
         elif t == 3:
             self._read(3)
-            self._read(struct.unpack(">I", self._read(4))[0])
+            n = struct.unpack(">i", self._read(4))[0]
+            if n >= 0:
+                self.clipboard = self._read(n).decode("latin-1")
+            else:
+                self._server_clip(self._read(-n))
         elif t == 150:
             self.continuous = True
         else:

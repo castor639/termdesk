@@ -47,6 +47,7 @@ CSI_TILDE = {2: XK["ins"], 3: XK["del"], 5: XK["pgup"], 6: XK["pgdn"], 7: XK["ho
 MOD_BITS = [(1, XK["shift_l"]), (2, XK["alt_l"]), (4, XK["ctrl_l"]), (8, XK["super_l"])]
 
 CHAR_KEYSYMS = {"\n": XK["ret"], "\r": XK["ret"], "\t": XK["tab"], "\b": XK["bs"], "\x1b": XK["esc"]}
+US_SHIFTED = dict(zip("`1234567890-=[]\\;',./", '~!@#$%^&*()_+{}|:"<>?'))
 
 
 def char_keysym(ch):
@@ -54,6 +55,12 @@ def char_keysym(ch):
         return CHAR_KEYSYMS[ch]
     cp = ord(ch)
     return cp if cp < 0x100 else 0x01000000 | cp
+
+
+def off_keymap(text):
+    """True when text has characters a US keymap cannot type. Xvnc maps those to a few spare
+    keycodes it never frees, then drops them silently, so they should go through the clipboard."""
+    return any(not (" " <= ch <= "~" or ch in CHAR_KEYSYMS) for ch in text)
 
 
 def parse_combo(combo):
@@ -68,6 +75,8 @@ def parse_combo(combo):
         mods.append(KEY_NAMES[p.lower()])
     last = parts[-1]
     if len(last) == 1:
+        if XK["shift_l"] in mods:  # Xvnc lets go of a held Shift to type an unshifted keysym exactly
+            last = last.upper() if last.isalpha() else US_SHIFTED.get(last, last)
         sym = char_keysym(last)
     elif last.lower() in KEY_NAMES:
         sym = KEY_NAMES[last.lower()]
