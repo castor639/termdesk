@@ -2,9 +2,9 @@
 
 A computer inside your terminal.
 
-![An agent in a kitty split launches termdesk, opens a terminal on the remote desktop, starts a browser and loads the termdesk site](assets/agent-demo.gif)
+[![termdesk launch video: a terminal pane swallows a desktop, an agent clicks by number, types a spreadsheet row, and gets caught typing into a button](assets/launch.gif)](https://termdesk.warpfield.me/launch.mp4)
 
-The clip runs at 1.75x speed. Watch the [full, unedited run](https://termdesk.warpfield.me/agent-demo.mp4) on the site.
+Every clip is a real termdesk 0.4.0 recording. Watch it [full size](https://termdesk.warpfield.me/launch.mp4) on the site.
 
 [Website](https://termdesk.warpfield.me) · Part of [Warpfield](https://warpfield.me)
 
@@ -186,7 +186,7 @@ The status line under the desktop shows fps, bytes in and out, and the transport
 - `scripts/`: the installer and the script that records the demo video.
 - `site/`: the website, installer and wheel, served on Vercel.
 
-## Prior art
+## Prior work
 
 [desktui](https://github.com/mishushakov/desktui) drew a VNC desktop with kitty graphics first. [sshdesk](https://github.com/rylena/sshdesk) added an agent CLI over ssh. [terminal-browser](https://terminal-browser.com) did the same for a browser and got this project started.
 

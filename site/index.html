@@ -66,6 +66,7 @@
   section > p + p { margin-top: 20px; }
 
   .demo { width: 100%; display: block; margin-top: 28px; border: 1px solid var(--line); background: #000; }
+  .demo.sq { aspect-ratio: 1; height: auto; }
   .demo + .note { margin-top: 12px; }
 
   .does { display: grid; grid-template-columns: 290px 1fr; gap: 30px 32px; align-items: baseline; }
@@ -158,13 +159,12 @@
   <p class="note">macOS and Linux &middot; about 35 MB &middot; Python 3.9+ &middot; Docker only for sandboxes &middot; <code>termdesk uninstall</code> removes it all</p>
 
   <section id="demo" class="reveal">
-    <h2 class="label">Watch an agent launch it</h2>
-    <p>An agent opens termdesk in a split and uses the desktop on its own. It opens a terminal, starts a browser and reads this page.</p>
-    <video class="demo" autoplay muted loop playsinline preload="metadata" poster="/agent-demo.jpg" aria-label="An AI agent in kitty launches termdesk in a split and drives an XFCE desktop to open this site in Chromium">
-      <source src="/agent-demo.webm" type="video/webm">
-      <source src="/agent-demo.mp4" type="video/mp4">
+    <h2 class="label">See it in 30 seconds</h2>
+    <p>A desktop drops into a terminal pane. Then an agent clicks by number, types a spreadsheet row, and termdesk catches it typing into a button.</p>
+    <video id="launch" class="demo sq" muted loop playsinline controls preload="none" poster="/launch.jpg" aria-label="termdesk launch video: a terminal pane swallows a desktop, an agent clicks by number, fills a spreadsheet row, and gets a warning when it types into a button">
+      <source src="/launch.mp4" type="video/mp4">
     </video>
-    <p class="note">Unedited run of scripts/record-demo &middot; agent on the left, computer on the right</p>
+    <p class="note">31 seconds &middot; every clip is a real termdesk 0.4.0 recording</p>
   </section>
 
   <section class="reveal">
@@ -210,7 +210,7 @@
   </section>
 
   <section class="reveal">
-    <h2 class="label">Prior art, credited</h2>
+    <h2 class="label">Prior work, credited</h2>
     <p class="credit"><a href="https://github.com/mishushakov/desktui">desktui</a> drew a VNC desktop with kitty graphics first. <a href="https://github.com/rylena/sshdesk">sshdesk</a> added an agent CLI over ssh. <a href="https://terminal-browser.com">terminal-browser</a> did it for a browser and got this started.</p>
   </section>
 </main>
@@ -243,6 +243,12 @@
     for (const e of entries) if (e.isIntersecting) { e.target.classList.add("in"); io.unobserve(e.target); }
   }, { threshold: 0.08 });
   document.querySelectorAll(".reveal").forEach((el) => io.observe(el));
+  const launch = document.getElementById("launch");
+  if (!matchMedia("(prefers-reduced-motion: reduce)").matches) {
+    new IntersectionObserver((entries, o) => {
+      if (entries[0].intersectionRatio >= 0.4) { launch.play().catch(() => {}); o.disconnect(); }
+    }, { threshold: 0.4 }).observe(launch);
+  }
 </script>
 </body>
 </html>
